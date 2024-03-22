@@ -20,10 +20,10 @@ from parameters import parser, YML_PATH
 from dataset import CompositionDataset
 from model.dfsp import DFSP
 
+from config import DEVICE
+
 
 cudnn.benchmark = True
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class Evaluator:
@@ -178,7 +178,7 @@ class Evaluator:
         '''
         # Go to CPU
         scores = {k: v.to('cpu') for k, v in scores.items()}
-        obj_truth = obj_truth.to(device)
+        obj_truth = obj_truth.to(DEVICE)
 
         # Gather scores for all relevant (a,o) pairs
         scores = torch.stack(
@@ -380,7 +380,7 @@ def predict_logits(model, dataset, config):
         model (nn.Module): the model
         text_rep (nn.Tensor): the attribute-object representations.
         dataset (CompositionDataset): the composition dataset (validation/test)
-        device (str): the device (either cpu/cuda:0)
+        DEVICE (str): the DEVICE (either cpu/cuda:0)
         config (argparse.ArgumentParser): config/args
 
     Returns:
@@ -398,7 +398,7 @@ def predict_logits(model, dataset, config):
     # print(text_rep.shape)
     pairs_dataset = dataset.pairs
     pairs = torch.tensor([(attr2idx[attr], obj2idx[obj])
-                                for attr, obj in pairs_dataset]).cuda()
+                                for attr, obj in pairs_dataset]).to(DEVICE)
     dataloader = DataLoader(
         dataset,
         batch_size=config.eval_batch_size,
@@ -409,7 +409,7 @@ def predict_logits(model, dataset, config):
         for idx, data in tqdm(
             enumerate(dataloader), total=len(dataloader), desc="Testing"
         ):
-            batch_img = data[0].cuda()
+            batch_img = data[0].to(DEVICE)
             predict = model(batch_img, pairs)
             logits = predict[0]
             loss += loss_calu(predict, data, config)
@@ -550,8 +550,12 @@ if __name__ == "__main__":
     classes = [cla.replace(".", " ").lower() for cla in allobj]
     attributes = [attr.replace(".", " ").lower() for attr in allattrs]
     offset = len(attributes)
+    print('attributes')
+    print(len(attributes))
+    print('classes')
+    print(len(classes))
 
-    model = DFSP(config, attributes=attributes, classes=classes, offset=offset).cuda()
+    model = DFSP(config, attributes=attributes, classes=classes, offset=offset).to(DEVICE)
     model.load_state_dict(torch.load(config.load_model))
 
     print('evaluating on the validation set')
@@ -574,7 +578,7 @@ if __name__ == "__main__":
         val_stats = None
         with torch.no_grad():
             all_logits, all_attr_gt, all_obj_gt, all_pair_gt, loss_avg = predict_logits(
-                model, val_dataset, device, config)
+                model, val_dataset, DEVICE, config)
             for th in thresholds:
                 temp_logits = threshold_with_feasibility(
                     all_logits, val_dataset.seen_mask, threshold=th, feasiblity=unseen_scores)

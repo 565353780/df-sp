@@ -6,14 +6,13 @@ import clip
 import torch
 import torch.nn.functional as F
 from clip_modules.model_loader import load
+from parameters import YML_PATH
 
-from datasets.composition_dataset import CompositionDataset
-from datasets.read_datasets import DATASET_PATHS
+from dataset import CompositionDataset
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'
 
 def compute_cosine_similarity(names, weights, return_dict=True):
     pairing_names = list(product(names, names))
@@ -164,7 +163,7 @@ if __name__ == "__main__":
     )
     config = parser.parse_args()
 
-    dataset_path = DATASET_PATHS[config.dataset]
+    dataset_path = './data/cgqa/'
     dataset =  CompositionDataset(dataset_path,
                                     phase='test',
                                     split='compositional-split-natural',

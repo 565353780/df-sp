@@ -11,7 +11,7 @@ from clip_modules.model_loader import load
 from model.common import *
 import numpy as np
 
-
+from config import DEVICE, DTYPE
 
 class DFSP(nn.Module):
     def __init__(self, config, attributes, classes, offset):
@@ -27,7 +27,7 @@ class DFSP(nn.Module):
         self.enable_pos_emb = True
         dtype = None
         if dtype is None:
-            self.dtype = torch.float16
+            self.dtype = DTYPE
         else:
             self.dtype = dtype
         self.text_encoder = CustomTextEncoder(self.clip, self.dtype)
@@ -35,14 +35,14 @@ class DFSP(nn.Module):
             p.requires_grad=False
 
         self.soft_att_obj = nn.Parameter(self.soft_att_obj)
-        self.soft_prompt = nn.Parameter(ctx_vectors).cuda()
+        self.soft_prompt = nn.Parameter(ctx_vectors).to(DEVICE)
         self.fusion = FusionTextImageBlock(config.width_img, config.width_txt, len(self.attributes), len(self.classes), config.SA_K, context_length=self.config.context_length, fusion=self.config.fusion)
         self.weight = config.res_w
 
 
     def construct_soft_prompt(self):
         token_ids = clip.tokenize("a photo of x x",
-                              context_length=self.config.context_length).cuda()
+                              context_length=self.config.context_length).to(DEVICE)
 
         tokenized = torch.cat(
             [
@@ -50,7 +50,7 @@ class DFSP(nn.Module):
                 for tok in self.attributes + self.classes
             ]
         )
-        orig_token_embedding = self.clip.token_embedding(tokenized.cuda())
+        orig_token_embedding = self.clip.token_embedding(tokenized.to(DEVICE))
 
         # with torch.no_grad():
         soft_att_obj = torch.zeros(
@@ -63,7 +63,7 @@ class DFSP(nn.Module):
         ctx_init = "a photo of "
         n_ctx = len(ctx_init.split())
         prompt = clip.tokenize(ctx_init,
-                            context_length=self.config.context_length).cuda()
+                            context_length=self.config.context_length).to(DEVICE)
         with torch.no_grad():
             embedding = self.clip.token_embedding(prompt)
         ctx_vectors = embedding[0, 1 : 1 + n_ctx, :]
@@ -74,7 +74,7 @@ class DFSP(nn.Module):
         attr_idx, obj_idx = pair_idx[:, 0], pair_idx[:, 1]
         class_token_ids = self.token_ids.repeat(len(pair_idx), 1)
         token_tensor = self.clip.token_embedding(
-            class_token_ids.cuda()
+            class_token_ids.to(DEVICE)
         ).type(self.clip.dtype)
         soft_att_obj = self.attr_dropout(self.soft_att_obj)
         eos_idx = int(self.token_ids[0].argmax())
@@ -141,8 +141,8 @@ class DFSP(nn.Module):
 
     def decompose_logits(self, logits, idx):
         att_idx, obj_idx = idx[:, 0].cpu().numpy(), idx[:, 1].cpu().numpy()
-        logits_att = torch.zeros(logits.shape[0], len(self.attributes)).cuda()
-        logits_obj = torch.zeros(logits.shape[0], len(self.classes)).cuda()
+        logits_att = torch.zeros(logits.shape[0], len(self.attributes)).to(DEVICE)
+        logits_obj = torch.zeros(logits.shape[0], len(self.classes)).to(DEVICE)
         for i in range(len(self.attributes)):
             logits_att[:, i] = logits[:, np.where(att_idx==i)[0]].mean(-1)
         for i in range(len(self.classes)):
@@ -153,26 +153,39 @@ class DFSP(nn.Module):
     def forward(self, batch_img, idx):
         b = batch_img.shape[0]
         l, _ = idx.shape
+        print('start visual')
         batch_img, img_ft = self.visual(batch_img.type(self.clip.dtype))   ## bs * 768
+        print('finish visual')
+        print('start construct_token_tensors')
         token_tensors = self.construct_token_tensors(idx)
+        print('finish construct_token_tensors')
+        print('start text_encoder')
         text_features, text_ft = self.text_encoder(
             self.token_ids,
             token_tensors,
             enable_pos_emb=self.enable_pos_emb,
         )  
+        print('finish text_encoder')
         batch_img_soft_prompt = batch_img / batch_img.norm(dim=-1, keepdim=True)
         text_features_soft_prompt = text_features / text_features.norm(dim=-1, keepdim=True)
+        print('start fusion')
         img_ft, text_ft = self.fusion(img_ft.type(torch.float), text_ft.type(torch.float), idx, b)
+        print('finish fusion')
+        print('start ft_to_logit')
         img_ft, text_ft = self.ft_to_logit(img_ft.type(self.clip.dtype), text_ft.type(self.clip.dtype))
+        print('finish ft_to_logit')
         batch_img = self.weight * batch_img + (1 - self.weight) * img_ft
         normalized_img = batch_img / batch_img.norm(dim=-1, keepdim=True)
+        print('start get text_features')
         if self.config.fusion in ["BiFusion", "img2txt"]: 
             text_features = self.weight * text_features.repeat(b, 1, 1) + (1 - self.weight) * text_ft
         else:
             text_features = self.weight * text_features + (1 - self.weight) * text_ft
+        print('finish get text_features')
         idx_text_features = text_features / text_features.norm(
             dim=-1, keepdim=True
         )
+        print('start get logits')
         if self.config.fusion in ["BiFusion", "img2txt"]: 
             logits = (
                 self.clip.logit_scale.exp()
@@ -185,6 +198,7 @@ class DFSP(nn.Module):
                 * normalized_img
                 @ idx_text_features.t()
             )   
+        print('finish get logits')
 
         logits_soft_prompt = (
             self.clip.logit_scale.exp()
@@ -192,6 +206,8 @@ class DFSP(nn.Module):
             @ text_features_soft_prompt.t()
         )     
 
+        print('start decompose_logits')
         logits_att, logits_obj = self.decompose_logits(logits_soft_prompt, idx)
+        print('finish decompose_logits')
 
         return (logits, logits_att, logits_obj, logits_soft_prompt)

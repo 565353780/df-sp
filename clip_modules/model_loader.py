@@ -9,7 +9,7 @@ from clip.model import CLIP, convert_weights
 
 def load(
     name: str,
-    device: Union[str, torch.device] = "cuda"
+    device: Union[str, torch.device] = "cpu"
     if torch.cuda.is_available()
     else "cpu",
     jit=False,

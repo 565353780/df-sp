@@ -3,6 +3,8 @@ import argparse
 import torch
 from clip.model import CLIP
 
+from config import DTYPE
+
 from .text_encoder import CustomTextEncoder
 
 
@@ -43,9 +45,9 @@ class CLIPInterface(torch.nn.Module):
         self.clip_model = clip_model
 
         if dtype is None and device == "cpu":
-            self.dtype = torch.float32
+            self.dtype = DTYPE
         elif dtype is None:
-            self.dtype = torch.float16
+            self.dtype = DTYPE
         else:
             self.dtype = dtype
 

@@ -12,8 +12,10 @@ from collections import OrderedDict
 from einops import rearrange, reduce, repeat
 from einops.layers.torch import Rearrange, Reduce
 
+from config import DEVICE, DTYPE
+
 class CustomTextEncoder(torch.nn.Module):
-    def __init__(self, clip_model, dtype=torch.float16):
+    def __init__(self, clip_model, dtype=DTYPE):
         super().__init__()
         self.dtype = dtype
 
@@ -45,28 +47,45 @@ class CustomTextEncoder(torch.nn.Module):
         Returns:
             torch.Tensor: the vector representation of the prompt.
         """
+        print('CustomTextEncoder: start get text_features')
         if token_tensors is not None:
             text_features = token_tensors
         else:
             text_features = self.token_embedding(token_ids)
+        print('CustomTextEncoder: finish get text_features')
+        print('text_features.shape:', text_features.shape)
 
         text_features = text_features.type(self.dtype)
+        print('CustomTextEncoder: start get x by positional_embedding')
         x = (
             text_features + self.positional_embedding.type(self.dtype)
             if enable_pos_emb
             else text_features
         )
+        print('x.shape:', x.shape)
+        print('CustomTextEncoder: finish get x by positional_embedding')
         x = x.permute(1, 0, 2)
+        print('CustomTextEncoder: start get text_feature by transformer')
+        print('x.shape:', x.shape)
         text_feature = self.transformer(x)
+        print('text_feature.shape:', text_feature.shape)
+        print('CustomTextEncoder: finish get x by transformer')
 
         x = text_feature.permute(1, 0, 2)
+        print('CustomTextEncoder: start get x by ln_final')
+        print('x.shape:', x.shape)
         x = self.ln_final(x)
+        print('CustomTextEncoder: finish get x by ln_final')
+        print('x.shape:', x.shape)
+        print('CustomTextEncoder: start get tf by arange')
         tf = (
             x[
                 torch.arange(x.shape[0]), token_ids.argmax(dim=-1)
             ]  # POS of <EOS>
             @ self.text_projection
         )
+        print('CustomTextEncoder: finish get tf by arange')
+        print('tf.shape:', tf.shape)
         return tf, text_feature
 
 
@@ -115,7 +134,7 @@ class LayerNorm(nn.LayerNorm):
 
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
-        ret = super().forward(x.type(torch.float32))
+        ret = super().forward(x.type(DTYPE))
         return ret.type(orig_type)
 
 
@@ -200,8 +219,8 @@ class FusionTextImageBlock(nn.Module):
     def decompose(self, text_feature, idx):
         t, l, c = text_feature.shape
         att_idx, obj_idx = idx[:, 0].cpu().numpy(), idx[:, 1].cpu().numpy()
-        text_att = torch.zeros(t, self.attributes, c).cuda()
-        text_obj = torch.zeros(t, self.classes, c).cuda()
+        text_att = torch.zeros(t, self.attributes, c).to(DEVICE)
+        text_obj = torch.zeros(t, self.classes, c).to(DEVICE)
         for i in range(self.attributes):
             text_att[:, i, :] = text_feature[:, np.where(att_idx==i)[0], :].mean(-2)
         for i in range(self.classes):
@@ -213,7 +232,7 @@ class FusionTextImageBlock(nn.Module):
     def compose(self, text_feature, idx):
         t, l, c = text_feature.shape
         att_idx, obj_idx = idx[:, 0].cpu().numpy(), idx[:, 1].cpu().numpy()
-        text_com_feature = torch.zeros(t, len(idx), c).cuda()
+        text_com_feature = torch.zeros(t, len(idx), c).to(DEVICE)
         text_com_feature = text_feature[:, att_idx, :] * text_feature[:, obj_idx + self.attributes, :]
         text_com_feature = self.txt_fine_tune(text_com_feature)
         return text_com_feature

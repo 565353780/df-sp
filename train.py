@@ -66,6 +66,8 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, test_datas
             epoch_train_losses.append(loss.item())
             progress_bar.set_postfix({"train loss": np.mean(epoch_train_losses[-50:])})
             progress_bar.update()
+            torch.save(model.state_dict(), os.path.join(config.save_path, f"{config.fusion}_epoch_{i}.pt"))
+            exit()
         scheduler.step()
         progress_bar.close()
         progress_bar.write(f"epoch {i +1} train loss {np.mean(epoch_train_losses)}")

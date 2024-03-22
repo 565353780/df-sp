@@ -1,9 +1,10 @@
 import clip
 import torch
 
+from config import DTYPE
 
 class CustomTextEncoder(torch.nn.Module):
-    def __init__(self, clip_model, dtype=torch.float16):
+    def __init__(self, clip_model, dtype=DTYPE):
         super().__init__()
         self.dtype = dtype
 
