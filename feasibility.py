@@ -8,11 +8,11 @@ import torch.nn.functional as F
 from clip_modules.model_loader import load
 from parameters import YML_PATH
 
+from config import DEVICE
+
 from dataset import CompositionDataset
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def compute_cosine_similarity(names, weights, return_dict=True):
     pairing_names = list(product(names, names))
@@ -24,7 +24,7 @@ def compute_cosine_similarity(names, weights, return_dict=True):
             for j,m in enumerate(names):
                 dict_sim[(n,m)]=similarity[i,j].item()
         return dict_sim
-    return pairing_names, similarity.to(device)
+    return pairing_names, similarity.to(DEVICE)
 
 
 def load_glove_embeddings(vocab):
@@ -118,12 +118,12 @@ def compute_feasibility(dataset):
     attrs = dataset.attrs
 
     print('computing the obj embeddings')
-    obj_embeddings = load_glove_embeddings(objs).to(device)
+    obj_embeddings = load_glove_embeddings(objs).to(DEVICE)
     obj_embedding_sim = compute_cosine_similarity(objs, obj_embeddings,
                                                         return_dict=True)
 
     print('computing the attr embeddings')
-    attr_embeddings = load_glove_embeddings(attrs).to(device)
+    attr_embeddings = load_glove_embeddings(attrs).to(DEVICE)
     attr_embedding_sim = compute_cosine_similarity(attrs, attr_embeddings,
                                                         return_dict=True)
 
